@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>doctsltr — Document Translator</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="page" x-data="app" x-init="init()">
+      <header class="header">
+        <h1>doctsltr</h1>
+        <p class="tagline">
+          Google Cloud Document Translation — PDF, DOCX, PPTX, XLSX
+        </p>
+      </header>
+
+      <nav class="tabs">
+        <button
+          class="tab"
+          :class="{ active: mode === 'online' }"
+          @click="mode = 'online'"
+        >
+          Online (tek dosya)
+        </button>
+        <button
+          class="tab"
+          :class="{ active: mode === 'batch' }"
+          @click="mode = 'batch'"
+        >
+          Batch (çoklu dosya)
+        </button>
+      </nav>
+
+      <!-- ONLINE MODE -->
+      <section class="card" x-show="mode === 'online'">
+        <div
+          class="dropzone"
+          :class="{ dragging: onlineDragging, filled: onlineFile }"
+          @dragover.prevent="onlineDragging = true"
+          @dragleave.prevent="onlineDragging = false"
+          @drop.prevent="onOnlineDrop($event)"
+          @click="$refs.onlineInput.click()"
+        >
+          <input
+            type="file"
+            x-ref="onlineInput"
+            class="hidden-input"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+            @change="onOnlineSelect($event)"
+          />
+          <template x-if="!onlineFile">
+            <div class="dropzone-empty">
+              <strong>Dosyayı buraya sürükle</strong>
+              <span>veya tıklayıp seç · PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX · max 20 MB</span>
+            </div>
+          </template>
+          <template x-if="onlineFile">
+            <div class="dropzone-file">
+              <strong x-text="onlineFile.name"></strong>
+              <span x-text="formatSize(onlineFile.size)"></span>
+            </div>
+          </template>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Hedef dil
+            <select x-model="onlineTarget">
+              <option value="">— seç —</option>
+              <template x-for="lang in targetLanguages" :key="lang.code">
+                <option :value="lang.code" x-text="lang.name + ' (' + lang.code + ')'"></option>
+              </template>
+            </select>
+          </label>
+          <label>
+            Kaynak dil
+            <select x-model="onlineSource">
+              <option value="">Otomatik algıla</option>
+              <template x-for="lang in sourceLanguages" :key="lang.code">
+                <option :value="lang.code" x-text="lang.name + ' (' + lang.code + ')'"></option>
+              </template>
+            </select>
+          </label>
+        </div>
+
+        <div class="options">
+          <label class="checkbox">
+            <input type="checkbox" x-model="online.isNativePdf" />
+            <span>Native PDF (300 sayfa limiti)</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" x-model="online.shadowRemoval" />
+            <span>Shadow text kaldır (sayfa limiti 20’ye düşer)</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" x-model="online.rotationCorrection" />
+            <span>Metin yönü düzeltme (scanned PDF)</span>
+          </label>
+        </div>
+
+        <button
+          class="primary"
+          :disabled="!onlineFile || !onlineTarget || onlineBusy"
+          @click="runOnline()"
+        >
+          <span x-show="!onlineBusy">Çevir ve indir</span>
+          <span x-show="onlineBusy">Çevriliyor…</span>
+        </button>
+
+        <p class="hint">
+          DOC/DOCX text box içeriği çevrilmez. Scanned PDF’lerde biçim kaybı olabilir.
+        </p>
+      </section>
+
+      <!-- BATCH MODE -->
+      <section class="card" x-show="mode === 'batch'">
+        <div
+          class="dropzone"
+          :class="{ dragging: batchDragging, filled: batchFiles.length > 0 }"
+          @dragover.prevent="batchDragging = true"
+          @dragleave.prevent="batchDragging = false"
+          @drop.prevent="onBatchDrop($event)"
+          @click="$refs.batchInput.click()"
+        >
+          <input
+            type="file"
+            x-ref="batchInput"
+            class="hidden-input"
+            multiple
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx"
+            @change="onBatchSelect($event)"
+          />
+          <template x-if="batchFiles.length === 0">
+            <div class="dropzone-empty">
+              <strong>Dosyaları buraya sürükle</strong>
+              <span>veya tıklayıp seç · en fazla 100 dosya · toplam 1 GB</span>
+            </div>
+          </template>
+          <template x-if="batchFiles.length > 0">
+            <div class="dropzone-file">
+              <strong x-text="batchFiles.length + ' dosya seçildi'"></strong>
+              <ul class="file-list">
+                <template x-for="(f, i) in batchFiles" :key="i">
+                  <li>
+                    <span x-text="f.name"></span>
+                    <span class="muted" x-text="formatSize(f.size)"></span>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            Hedef diller
+            <select x-model="batchTarget" @change="addBatchTarget()">
+              <option value="">— ekle —</option>
+              <template x-for="lang in targetLanguages" :key="lang.code">
+                <option
+                  :value="lang.code"
+                  :disabled="batchTargets.includes(lang.code)"
+                  x-text="lang.name + ' (' + lang.code + ')'"
+                ></option>
+              </template>
+            </select>
+          </label>
+          <label>
+            Kaynak dil
+            <select x-model="batchSource">
+              <option value="">Otomatik algıla</option>
+              <template x-for="lang in sourceLanguages" :key="lang.code">
+                <option :value="lang.code" x-text="lang.name + ' (' + lang.code + ')'"></option>
+              </template>
+            </select>
+          </label>
+        </div>
+
+        <div class="chips" x-show="batchTargets.length > 0">
+          <template x-for="code in batchTargets" :key="code">
+            <span class="chip">
+              <span x-text="langName(code)"></span>
+              <button class="chip-x" @click="removeBatchTarget(code)">×</button>
+            </span>
+          </template>
+        </div>
+
+        <div class="options">
+          <label class="checkbox">
+            <input type="checkbox" x-model="batch.shadowRemoval" />
+            <span>Shadow text kaldır</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" x-model="batch.rotationCorrection" />
+            <span>Metin yönü düzeltme</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" x-model="batch.convertPdfToDocx" />
+            <span>Native PDF → DOCX dönüştür</span>
+          </label>
+        </div>
+
+        <button
+          class="primary"
+          :disabled="batchFiles.length === 0 || batchTargets.length === 0 || batchBusy"
+          @click="runBatch()"
+        >
+          <span x-show="!batchBusy">Batch çeviriyi başlat</span>
+          <span x-show="batchBusy">Gönderiliyor…</span>
+        </button>
+
+        <p class="hint">
+          Batch için GCS bucket gerekli. Native PDF → DOCX dönüşümünde scanned PDF olmamalı.
+        </p>
+
+        <!-- Job status -->
+        <template x-if="activeJob">
+          <div class="job-panel">
+            <h3>İş durumu</h3>
+            <div class="job-row">
+              <span>Job ID</span>
+              <code x-text="activeJob.id"></code>
+            </div>
+            <div class="job-row">
+              <span>Durum</span>
+              <span class="badge" :class="'state-' + activeJob.state" x-text="activeJob.state"></span>
+            </div>
+            <div class="job-row" x-show="activeJob.totalPages != null">
+              <span>Sayfalar</span>
+              <span
+                x-text="activeJob.failedPages != null
+                  ? activeJob.totalPages + ' (başarısız: ' + activeJob.failedPages + ')'
+                  : activeJob.totalPages"
+              ></span>
+            </div>
+            <div class="job-row" x-show="activeJob.error">
+              <span>Hata</span>
+              <span class="error-text" x-text="activeJob.error"></span>
+            </div>
+
+            <div class="job-actions">
+              <button class="primary" x-show="activeJob.state === 'succeeded'" @click="downloadBatch()">
+                Sonuçları indir
+              </button>
+              <button class="ghost" @click="refreshJob()">Yenile</button>
+              <button class="ghost danger" @click="deleteJob()">Temizle</button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- GLOBAL STATUS -->
+      <div class="status-bar" x-show="statusMessage">
+        <span :class="{ 'error-text': statusIsError }" x-text="statusMessage"></span>
+      </div>
+
+      <footer class="footer">
+        <span>
+          API:
+          <span x-text="health.batchEnabled ? 'online + batch' : 'online (GCS yok)'"></span>
+          · <span x-text="health.projectId || '—'"></span>
+        </span>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

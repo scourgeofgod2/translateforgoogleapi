@@ -1,0 +1,19 @@
+{
+  "name": "@doctsltr/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "alpinejs": "^3.14.8"
+  },
+  "devDependencies": {
+    "@types/alpinejs": "^3.13.12",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
