@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 *.log
+*service-account*.json
+translate-*.json
 .DS_Store
 uploads/
 tmp/
